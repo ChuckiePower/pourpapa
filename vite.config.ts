@@ -4,8 +4,13 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 /** Accepte les noms de variables posés par Vercel, Supabase ou à la main. */
-function pick(env: Record<string, string | undefined>, names: string[]): string {
+function pick(env: Record<string, string | undefined>, names: string[], fallback?: RegExp): string {
   for (const n of names) if (env[n]) return env[n]!.trim()
+  // Variables posées avec un préfixe personnalisé (ex. MONPREFIXE_SUPABASE_URL).
+  if (fallback) {
+    const k = Object.keys(env).sort().find((n) => fallback.test(n) && !/SERVICE_ROLE|SECRET|JWT/.test(n) && env[n])
+    if (k) return env[k]!.trim()
+  }
   return ''
 }
 
@@ -26,7 +31,7 @@ function assertPublicKey(key: string) {
 
 export default defineConfig(({ mode }) => {
   const env = { ...loadEnv(mode, process.cwd(), ''), ...process.env }
-  const url = pick(env, ['VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_URL'])
+  const url = pick(env, ['VITE_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_URL'], /SUPABASE_URL$/)
   const key = pick(env, [
     'VITE_SUPABASE_PUBLISHABLE_KEY',
     'VITE_SUPABASE_ANON_KEY',
@@ -34,7 +39,7 @@ export default defineConfig(({ mode }) => {
     'NEXT_PUBLIC_SUPABASE_ANON_KEY',
     'SUPABASE_PUBLISHABLE_KEY',
     'SUPABASE_ANON_KEY',
-  ])
+  ], /SUPABASE_(PUBLISHABLE|ANON)_KEY$/)
   assertPublicKey(key)
 
   return {
