@@ -392,6 +392,7 @@ function GuidelinesEditor({ token, run }: { token: string; run: Run }) {
 
 function SettingsEditor({ token, run, settings }: { token: string; run: Run; settings: Settings }) {
   const { online } = useData()
+  const now = useNow()
   const [s, setS] = useState(settings)
   useEffect(() => setS(settings), [settings])
   const hours: number[] = []
@@ -421,8 +422,18 @@ function SettingsEditor({ token, run, settings }: { token: string; run: Run; set
           <option value="">Aucune</option>
           {[60, 90, 120, 180, 240].map((m) => <option key={m} value={m}>{fmtDuration(m)}</option>)}
         </Select>
-        <Select label="Jours visibles" value={s.days_ahead} onChange={(e) => set('days_ahead', Number(e.target.value))}>
-          {[7, 10, 14, 21, 30].map((n) => <option key={n} value={n}>{n} jours</option>)}
+        <Select
+          className="col-span-2"
+          label="Jours visibles à l'avance"
+          hint="avance chaque jour"
+          value={s.days_ahead}
+          onChange={(e) => set('days_ahead', Number(e.target.value))}
+        >
+          {[...new Set([7, 14, 21, 30, 45, 60, s.days_ahead])].sort((a, b) => a - b).map((n) => (
+            <option key={n} value={n}>
+              {n} jours · jusqu'au {dayLong(addDays(now.day, n - 1))}
+            </option>
+          ))}
         </Select>
       </div>
       <Input label="Nom de l'app" value={s.app_name} maxLength={40} onChange={(e) => set('app_name', e.target.value)} />
