@@ -26,7 +26,7 @@ export function Shell({ children }: { children: ReactNode }) {
     <div className="mx-auto flex min-h-dvh max-w-lg flex-col">
       <header className="pt-safe px-5">
         <div className="flex h-16 items-center justify-between gap-3">
-          <Link to="/" className="font-serif text-[26px] font-medium leading-none tracking-tight">
+          <Link to="/" className="-ml-1 inline-flex min-h-12 items-center gap-2 px-1 font-serif text-[26px] font-medium leading-none tracking-tight">
             {settings.app_name} <span aria-hidden className="text-[20px]">🤍</span>
           </Link>
           <p className="text-right text-[13px] leading-tight text-muted tabular">

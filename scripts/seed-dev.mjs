@@ -9,10 +9,11 @@ const admin = process.env.TEST_PG_ADMIN_URL ?? 'postgres://dev:dev@127.0.0.1:543
 const name = process.env.DEV_DB_NAME ?? 'visites_dev'
 const DEV_KEY = 'devkey-manu-0123456789abcdefghijklmnopqrstuv'
 
+// Crée la base si besoin (sans la supprimer : l'API locale peut être connectée).
 const c = new pg.Client({ connectionString: admin })
 await c.connect()
-await c.query(`drop database if exists ${name} with (force)`)
-await c.query(`create database ${name}`)
+const exists = await c.query('select 1 from pg_database where datname = $1', [name])
+if (!exists.rowCount) await c.query(`create database ${name}`)
 for (const role of ['anon', 'authenticated', 'service_role']) {
   await c.query(`do $$ begin if not exists (select 1 from pg_roles where rolname = '${role}') then create role ${role} nologin; end if; end $$`)
 }
@@ -23,6 +24,9 @@ u.pathname = `/${name}`
 const db = new pg.Client({ connectionString: u.toString() })
 await db.connect()
 await db.query(readFileSync(new URL('../supabase/schema.sql', import.meta.url), 'utf8'))
+await db.query(`truncate public.visits, public.blocks, public.notes, private.rate_events, private.admin_sessions cascade`)
+await db.query(`update public.settings set app_name = default, patient_label = default, open_min = default, close_min = default,
+  capacity = default, max_duration_min = default, days_ahead = default, guidelines = default`)
 await db.query(`select private.set_admin_pin('123456')`)
 await db.query(`update public.settings set announcement = 'Papa est un peu fatigué en ce moment : privilégiez des visites courtes.'`)
 

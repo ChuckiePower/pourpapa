@@ -249,7 +249,7 @@ describe('validation', () => {
 
   it('limite de débit', async () => {
     let refused = 0
-    for (let i = 0; i < 45; i++) {
+    for (let i = 0; i < 65; i++) {
       const day = `2026-10-${String(20 + (i % 10)).padStart(2, '0')}`
       const slot = 840 + 30 * Math.floor(i / 10)
       const r = await db.rpc('book_visit', {

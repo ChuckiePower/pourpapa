@@ -598,7 +598,7 @@ begin
   if p_owner_key is null or char_length(p_owner_key) not between 32 and 128 then
     return private.err('invalid', 'Jeton d''appareil invalide. Recharge la page.');
   end if;
-  if not private.rate_ok('book', private.client_key(), 40, interval '1 hour') then
+  if not private.rate_ok('book', private.client_key(), 60, interval '1 hour') then
     return private.err('rate_limited', 'Beaucoup de réservations d''un coup. Réessaie dans un moment.');
   end if;
   if v_name is null then

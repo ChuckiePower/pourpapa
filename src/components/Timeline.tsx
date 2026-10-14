@@ -7,7 +7,7 @@ import type { Block, Settings, Visit } from '../lib/types'
 import { cx } from './ui'
 
 /** Hauteur d'une demi-heure, en pixels (cibles tactiles ≥ 48 px). */
-const ROW = 52
+const ROW = 56
 const GUTTER = 48
 
 type Props = {

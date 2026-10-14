@@ -12,6 +12,7 @@ import pg from 'pg'
 const url = process.env.DEV_DATABASE_URL ?? 'postgres://dev:dev@127.0.0.1:5432/visites_dev'
 const port = Number(process.env.DEV_API_PORT ?? 54321)
 const pool = new pg.Pool({ connectionString: url })
+pool.on('error', (e) => console.error('pg:', e.message))
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -24,6 +25,10 @@ http
     if (req.method === 'OPTIONS') {
       res.writeHead(204, cors)
       return res.end()
+    }
+    if (req.url === '/health') {
+      res.writeHead(200, cors)
+      return res.end('ok')
     }
     const m = /^\/rest\/v1\/rpc\/([a-z_]+)$/.exec(new URL(req.url, 'http://x').pathname)
     if (!m || req.method !== 'POST') {

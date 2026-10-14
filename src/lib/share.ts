@@ -1,4 +1,4 @@
-import { buildIcs } from './ics'
+import { buildIcs } from '../../api/ics'
 import { dayRelative, fmtFromTo, fmtMin } from './time'
 
 export function whatsappUrl(text: string): string {
