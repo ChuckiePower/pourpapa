@@ -500,7 +500,9 @@ begin
     'now', jsonb_build_object(
       'day', private.today(),
       'min', private.now_min(),
-      'epoch_ms', floor(extract(epoch from now()) * 1000)
+      'epoch_ms', floor(extract(epoch from case
+        when coalesce(current_setting('visites.now', true), '') = '' then now()
+        else private.now_local() at time zone 'Europe/Paris' end) * 1000)
     ),
     'settings', (
       select jsonb_build_object(

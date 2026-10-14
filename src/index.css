@@ -1,0 +1,147 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: "Fraunces";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("./assets/fonts/fraunces-latin.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+    U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("./assets/fonts/inter-latin.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308,
+    U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-sage: var(--sage);
+  --color-sage-soft: var(--sage-soft);
+  --color-sage-line: var(--sage-line);
+  --color-full: var(--full);
+  --color-full-ink: var(--full-ink);
+  --font-serif: "Fraunces", ui-serif, Georgia, serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --shadow-soft: 0 1px 2px rgb(40 28 18 / 0.05), 0 4px 16px rgb(40 28 18 / 0.05);
+  --shadow-sheet: 0 -8px 40px rgb(40 28 18 / 0.14);
+}
+
+:root {
+  --bg: #f7f2ea;
+  --surface: #fffdf9;
+  --sunken: #efe8dd;
+  --ink: #1e1a16;
+  --muted: #6a5f55;
+  --faint: #b3a99d;
+  --line: #e6ddd0;
+  --accent: #a64f2d;
+  --on-accent: #fffaf4;
+  --accent-soft: #f4e5dc;
+  --accent-text: #9a4626;
+  --sage: #4a6642;
+  --sage-soft: #e6ede0;
+  --sage-line: #b9caaf;
+  --full: #ebe5dc;
+  --full-ink: #5f564d;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161310;
+    --surface: #211d19;
+    --sunken: #1b1815;
+    --ink: #f2ebe1;
+    --muted: #a89e92;
+    --faint: #5c544c;
+    --line: #342e28;
+    --accent: #d7845f;
+    --on-accent: #1a110c;
+    --accent-soft: #3a261c;
+    --accent-text: #e6a080;
+    --sage: #a9c49d;
+    --sage-soft: #1e281c;
+    --sage-line: #3a4d34;
+    --full: #2a2520;
+    --full-ink: #b0a69a;
+    color-scheme: dark;
+  }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  h1, h2, h3 {
+    font-family: var(--font-serif);
+    font-optical-sizing: auto;
+    letter-spacing: -0.01em;
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  button, [role="button"], a, select, input, textarea {
+    touch-action: manipulation;
+  }
+}
+
+@layer utilities {
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .hatch {
+    background-image: repeating-linear-gradient(
+      -45deg, transparent 0 7px, color-mix(in srgb, var(--full-ink) 14%, transparent) 7px 8px
+    );
+  }
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .tabular { font-variant-numeric: tabular-nums; }
+}
+
+/* Animations : uniquement fonctionnelles, courtes. */
+@keyframes fade-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes rise { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
+@keyframes sheet-up { from { transform: translateY(100%) } to { transform: none } }
+@keyframes slide-from-right { from { opacity: 0; transform: translateX(16px) } to { opacity: 1; transform: none } }
+@keyframes slide-from-left { from { opacity: 0; transform: translateX(-16px) } to { opacity: 1; transform: none } }
+
+.anim-fade { animation: fade-in 160ms ease-out both; }
+.anim-rise { animation: rise 200ms ease-out both; }
+.anim-sheet { animation: sheet-up 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.anim-next { animation: slide-from-right 180ms ease-out both; }
+.anim-prev { animation: slide-from-left 180ms ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
