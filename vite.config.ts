@@ -42,18 +42,28 @@ export default defineConfig(({ mode }) => {
   ], /SUPABASE_(PUBLISHABLE|ANON)_KEY$/)
   assertPublicKey(key)
 
+  // Pour diagnostiquer un déploiement : seulement des NOMS de variables, jamais leurs valeurs.
+  const buildInfo = {
+    sha: (env.VERCEL_GIT_COMMIT_SHA ?? '').slice(0, 7),
+    at: new Date().toISOString(),
+    vars: Object.keys(env).filter((k) => /SUPABASE/i.test(k)).sort(),
+    url: Boolean(url),
+    key: Boolean(key),
+  }
+
   return {
     define: {
       __SUPABASE_URL__: JSON.stringify(url),
       __SUPABASE_KEY__: JSON.stringify(key),
       __REALTIME__: JSON.stringify(env.VITE_REALTIME !== 'off'),
+      __BUILD_INFO__: JSON.stringify(buildInfo),
     },
     plugins: [
       react(),
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        injectRegister: 'script-defer',
+        injectRegister: false,
         includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'robots.txt'],
         manifest: {
           name: 'Visites',
