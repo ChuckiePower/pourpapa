@@ -105,6 +105,7 @@ export function dayRelative(day: string, today: string): string {
   const diff = diffDays(day, today)
   if (diff === 0) return "aujourd'hui"
   if (diff === 1) return 'demain'
+  if (diff === -1) return 'hier'
   if (diff > 1 && diff < 7) return dayName(day)
   return dayLong(day)
 }

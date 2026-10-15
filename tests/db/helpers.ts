@@ -73,8 +73,8 @@ export async function createDb(name: string): Promise<Db> {
     },
     async reset() {
       await pool.query(`
-        truncate public.visits, public.blocks, public.notes, private.rate_events, private.admin_sessions cascade;
-        update public.settings set open_min = 840, close_min = 1200, capacity = 2,
+        truncate public.visits, public.blocks, public.notes, public.photos, private.rate_events, private.admin_sessions cascade;
+        update public.settings set open_min = 840, close_min = 1200, capacity = 2, per_day = null,
           max_duration_min = null, days_ahead = 14, announcement = '';
       `)
       db.now = '2026-10-19 10:00:00'

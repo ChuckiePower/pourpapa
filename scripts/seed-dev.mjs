@@ -2,7 +2,9 @@
  * Crée une base locale `visites_dev` avec des données d'exemple
  * (autour du mardi 20 octobre 2026). Code admin : 123456.
  */
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import pg from 'pg'
 
 const admin = process.env.TEST_PG_ADMIN_URL ?? 'postgres://dev:dev@127.0.0.1:5432/postgres'
@@ -24,22 +26,25 @@ u.pathname = `/${name}`
 const db = new pg.Client({ connectionString: u.toString() })
 await db.connect()
 await db.query(readFileSync(new URL('../supabase/schema.sql', import.meta.url), 'utf8'))
-await db.query(`truncate public.visits, public.blocks, public.notes, private.rate_events, private.admin_sessions cascade`)
+await db.query(`truncate public.visits, public.blocks, public.notes, public.photos, private.rate_events, private.admin_sessions cascade`)
 await db.query(`update public.settings set app_name = default, patient_label = default, open_min = default, close_min = default,
-  capacity = default, max_duration_min = default, days_ahead = default, guidelines = default`)
+  capacity = default, per_day = default, max_duration_min = default, days_ahead = default, guidelines = default`)
+// Photos de l'API locale
+const photosDir = process.env.DEV_PHOTOS_DIR ?? join(tmpdir(), 'visites-photos')
+mkdirSync(photosDir, { recursive: true })
+for (const f of readdirSync(photosDir)) rmSync(join(photosDir, f), { force: true })
 await db.query(`select private.set_admin_pin('123456')`)
 await db.query(`update public.settings set announcement = 'Papa est un peu fatigué en ce moment : privilégiez des visites courtes.'`)
 
+// 2 personnes maximum par jour.
 const visits = [
   ['2026-10-20', '14h', '16h', 1, 'Manu', null, true],
-  ['2026-10-20', '15h', '17h', 1, 'Léa', null],
-  ['2026-10-20', '18h', '19h', 2, 'Paul', 'Jo'],
   ['2026-10-21', '15h', '16h30', 1, 'Sophie', null],
   ['2026-10-21', '16h', '17h', 1, 'Marc', null],
   ['2026-10-23', '17h30', '19h', 1, 'Claire', null],
   ['2026-10-24', '14h', '15h30', 2, 'Mamie', 'Papi'],
-  ['2026-10-24', '16h', '20h', 1, 'Julien', null],
   ['2026-10-25', '15h', '17h', 1, 'Manu', null, true],
+  ['2026-10-26', '16h', '18h', 1, 'Léa', null],
 ]
 const toMin = (h) => {
   const [a, b] = h.split('h')

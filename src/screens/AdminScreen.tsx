@@ -4,6 +4,7 @@ import { BookingSheet, type SheetMode } from '../components/BookingSheet'
 import { Button, Card, Chip, ErrorNote, Input, Select, Spinner, TextArea, useToast } from '../components/ui'
 import * as api from '../lib/api'
 import { freeRanges, slotStates } from '../lib/capacity'
+import { cleanupPhotoFile, photoUrl } from '../lib/photos'
 import { Link } from '../lib/router'
 import { whatsappUrl } from '../lib/share'
 import { storage } from '../lib/storage'
@@ -139,6 +140,7 @@ function AdminPanel({ token, onToken, onLogout }: { token: string; onToken: (t: 
       <GuidelinesEditor token={token} run={run} />
       <SettingsEditor token={token} run={run} settings={settings} />
       <NotesAdmin token={token} run={run} />
+      <PhotosAdmin token={token} run={run} />
       <PinEditor token={token} onToken={onToken} run={run} />
       <Button variant="ghost" onClick={onLogout} disabled={!online}>
         Se déconnecter
@@ -397,7 +399,7 @@ function SettingsEditor({ token, run, settings }: { token: string; run: Run; set
   useEffect(() => setS(settings), [settings])
   const hours: number[] = []
   for (let m = 6 * 60; m <= 23 * 60; m += 30) hours.push(m)
-  const changed = (['app_name', 'patient_label', 'open_min', 'close_min', 'capacity', 'max_duration_min', 'days_ahead'] as const).some(
+  const changed = (['app_name', 'patient_label', 'open_min', 'close_min', 'capacity', 'per_day', 'max_duration_min', 'days_ahead'] as const).some(
     (k) => s[k] !== settings[k],
   )
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setS((x) => ({ ...x, [k]: v }))
@@ -411,8 +413,16 @@ function SettingsEditor({ token, run, settings }: { token: string; run: Run; set
         <Select label="Fin" value={s.close_min} onChange={(e) => set('close_min', Number(e.target.value))}>
           {hours.map((m) => <option key={m} value={m} disabled={m <= s.open_min}>{fmtMin(m)}</option>)}
         </Select>
-        <Select label="Personnes max" value={s.capacity} onChange={(e) => set('capacity', Number(e.target.value))}>
-          {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}
+        <Select
+          label="Par jour"
+          value={s.per_day ?? ''}
+          onChange={(e) => set('per_day', e.target.value ? Number(e.target.value) : null)}
+        >
+          {[1, 2, 3, 4, 6, 8].map((n) => <option key={n} value={n}>{n} {n > 1 ? 'personnes' : 'personne'}</option>)}
+          <option value="">Pas de limite</option>
+        </Select>
+        <Select label="En même temps" value={s.capacity} onChange={(e) => set('capacity', Number(e.target.value))}>
+          {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n} {n > 1 ? 'personnes' : 'personne'}</option>)}
         </Select>
         <Select
           label="Durée max"
@@ -449,6 +459,7 @@ function SettingsEditor({ token, run, settings }: { token: string; run: Run; set
               open_min: s.open_min,
               close_min: s.close_min,
               capacity: s.capacity,
+              per_day: s.per_day,
               max_duration_min: s.max_duration_min,
               days_ahead: s.days_ahead,
             }),
@@ -463,6 +474,50 @@ function SettingsEditor({ token, run, settings }: { token: string; run: Run; set
 }
 
 /* ------------------------------------------------------------------ Petits mots */
+
+function PhotosAdmin({ token, run }: { token: string; run: Run }) {
+  const { planning, online, removePhoto } = useData()
+  const [confirm, setConfirm] = useState<string | null>(null)
+  const photos = planning?.photos ?? []
+  if (!photos.length) return null
+  return (
+    <Section title="Photos" hint={`${photos.length} photo${photos.length > 1 ? 's' : ''}. Supprimer efface aussi le fichier.`}>
+      <ul className="flex flex-col divide-y divide-line">
+        {photos.map((p) => (
+          <li key={p.id} className="flex items-center gap-3 py-3">
+            <img src={photoUrl(p.path)} crossOrigin="anonymous" alt="" loading="lazy" className="size-14 shrink-0 rounded-xl bg-sunken object-cover" />
+            <p className="min-w-0 flex-1 text-[14px] leading-snug">
+              <span className="font-medium">{capitalize(dayLong(p.day))}</span>
+              <span className="text-muted"> · {p.author}</span>
+              {p.caption && <span className="block truncate text-muted">{p.caption}</span>}
+            </p>
+            {confirm === p.id ? (
+              <Button
+                variant="danger"
+                className="shrink-0 px-3"
+                disabled={!online}
+                onClick={async () => {
+                  setConfirm(null)
+                  const r = await run(api.adminDeletePhoto(token, p.id), 'Photo supprimée')
+                  if (r.ok) {
+                    removePhoto(p.id)
+                    cleanupPhotoFile(r.path)
+                  }
+                }}
+              >
+                Confirmer
+              </Button>
+            ) : (
+              <Button variant="quiet" className="shrink-0 px-3" disabled={!online} onClick={() => setConfirm(p.id)}>
+                Supprimer
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </Section>
+  )
+}
 
 function NotesAdmin({ token, run }: { token: string; run: Run }) {
   const { planning, online, removeNote } = useData()

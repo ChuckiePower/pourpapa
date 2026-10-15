@@ -101,7 +101,6 @@ export function Timeline({ day, states, visits, blocks, settings, now, mine, dis
             top={y(s.start_min)}
             height={y(s.end_min) - y(s.start_min)}
             style={colStyle(s.cols)}
-            capacity={capacity}
             disabled={disabled}
             onFree={onFree}
             onJoin={onJoin}
@@ -177,7 +176,6 @@ function FreeBlock({
   top,
   height,
   style,
-  capacity,
   disabled,
   onFree,
   onJoin,
@@ -186,7 +184,6 @@ function FreeBlock({
   top: number
   height: number
   style: { left: string; width: string }
-  capacity: number
   disabled?: boolean
   onFree: (start: number) => void
   onJoin: (visit: Visit, from: number) => void
@@ -194,7 +191,7 @@ function FreeBlock({
   const ref = useRef<HTMLButtonElement>(null)
   const rows = Math.round(height / ROW)
   const join = seg.alongside.length > 0
-  const places = join ? seg.cols.length : capacity
+  const places = seg.places
   const range = fmtRange(seg.start_min, seg.end_min)
   const withNames = joinNames(seg.alongside.map((v) => (v.companion_name ? `${v.name} et ${v.companion_name}` : v.name)))
 

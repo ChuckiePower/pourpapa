@@ -8,12 +8,12 @@ import { getKeys } from './owner'
 import { storage } from './storage'
 import { getRealtime } from './supabase'
 import { parisNow, setClockOffset } from './time'
-import { DEFAULT_SETTINGS, type Planning, type Settings, type Visit } from './types'
+import { DEFAULT_SETTINGS, type Photo, type Planning, type Settings, type Visit } from './types'
 
 const CACHE = 'visites.planning.v1'
 const MINE_CACHE = 'visites.mine.v1'
 
-type Mine = { visits: Record<string, number>; notes: Record<string, number> }
+type Mine = { visits: Record<string, number>; notes: Record<string, number>; photos: Record<string, number> }
 
 type Store = {
   planning: Planning | null
@@ -28,6 +28,8 @@ type Store = {
   upsertVisit: (v: Visit, owned?: { key: number }) => void
   removeVisit: (id: string) => void
   removeNote: (id: string) => void
+  upsertPhoto: (p: Photo, owned?: { key: number }) => void
+  removePhoto: (id: string) => void
 }
 
 const Ctx = createContext<Store | null>(null)
@@ -40,7 +42,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [lastSync, setLastSync] = useState<number | null>(cached?.at ?? null)
   const [status, setStatus] = useState<Store['status']>(cached ? 'ready' : 'loading')
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine)
-  const [mine, setMine] = useState<Mine>(() => storage.get<Mine>(MINE_CACHE) ?? { visits: {}, notes: {} })
+  const [mine, setMine] = useState<Mine>(() => ({ visits: {}, notes: {}, photos: {}, ...storage.get<Mine>(MINE_CACHE) }))
   const inflight = useRef<Promise<void> | null>(null)
 
   const refresh = useCallback(() => {
@@ -74,6 +76,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     const next: Mine = {
       visits: Object.fromEntries(res.visits.map((x) => [x.id, x.key])),
       notes: Object.fromEntries(res.notes.map((x) => [x.id, x.key])),
+      photos: Object.fromEntries((res.photos ?? []).map((x) => [x.id, x.key])),
     }
     setMine(next)
     storage.set(MINE_CACHE, next)
@@ -116,7 +119,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       t = window.setTimeout(() => void refresh(), 250)
     }
     const channel = rt.channel('planning')
-    for (const table of ['visits', 'blocks', 'notes', 'settings']) {
+    for (const table of ['visits', 'blocks', 'notes', 'settings', 'photos']) {
       channel.on('postgres_changes', { event: '*', schema: 'public', table }, bump)
     }
     channel.subscribe((status) => {
@@ -147,6 +150,21 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setPlanning((p) => (p ? { ...p, notes: p.notes.filter((x) => x.id !== id) } : p))
   }, [])
 
+  const upsertPhoto = useCallback((ph: Photo, owned?: { key: number }) => {
+    setPlanning((p) => (p ? { ...p, photos: [ph, ...(p.photos ?? []).filter((x) => x.id !== ph.id)] } : p))
+    if (owned) {
+      setMine((m) => {
+        const next = { ...m, photos: { ...m.photos, [ph.id]: owned.key } }
+        storage.set(MINE_CACHE, next)
+        return next
+      })
+    }
+  }, [])
+
+  const removePhoto = useCallback((id: string) => {
+    setPlanning((p) => (p ? { ...p, photos: (p.photos ?? []).filter((x) => x.id !== id) } : p))
+  }, [])
+
   const value: Store = {
     planning,
     settings: planning?.settings ?? DEFAULT_SETTINGS,
@@ -159,6 +177,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     upsertVisit,
     removeVisit,
     removeNote,
+    upsertPhoto,
+    removePhoto,
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

@@ -49,6 +49,16 @@ create table if not exists public.settings (
 );
 insert into public.settings (id) values (true) on conflict (id) do nothing;
 
+-- Nombre maximum de personnes sur toute la journée (null = pas de limite).
+alter table public.settings add column if not exists per_day smallint default 2;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'settings_per_day') then
+    alter table public.settings add constraint settings_per_day check (per_day is null or per_day between 1 and 20);
+  end if;
+end;
+$$;
+
 create table if not exists public.visits (
   id uuid primary key default gen_random_uuid(),
   day date not null,
@@ -93,6 +103,21 @@ create table if not exists public.notes (
 );
 create index if not exists notes_created_idx on public.notes (created_at desc);
 
+-- Photos prises pendant les visites. Le fichier est dans le stockage Supabase
+-- (bucket « photos »), la base garde le nom du fichier et sa légende.
+create table if not exists public.photos (
+  id uuid primary key default gen_random_uuid(),
+  path text not null unique
+    check (path ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$'),
+  day date not null,
+  author text not null check (char_length(author) between 1 and 30),
+  caption text check (caption is null or char_length(caption) between 1 and 140),
+  width smallint not null check (width between 1 and 4000),
+  height smallint not null check (height between 1 and 4000),
+  created_at timestamptz not null default now()
+);
+create index if not exists photos_day_idx on public.photos (day desc, created_at desc);
+
 -- ----------------------------------------------------------------------------
 --  Tables privées (jamais exposées)
 -- ----------------------------------------------------------------------------
@@ -109,6 +134,12 @@ create table if not exists private.note_owners (
   owner_hash bytea not null
 );
 create index if not exists note_owners_hash_idx on private.note_owners (owner_hash);
+
+create table if not exists private.photo_owners (
+  photo_id uuid primary key references public.photos (id) on delete cascade,
+  owner_hash bytea not null
+);
+create index if not exists photo_owners_hash_idx on private.photo_owners (owner_hash);
 
 create table if not exists private.admin (
   id boolean primary key default true check (id),
@@ -314,6 +345,43 @@ as $$
   order by g.slot
 $$;
 
+-- Nombre de personnes déjà prévues sur une journée.
+create or replace function private.day_people(p_day date, p_exclude uuid default null)
+returns int
+language sql stable
+set search_path = ''
+as $$
+  select coalesce(sum(v.people), 0)::int from public.visits v
+  where v.day = p_day and (p_exclude is null or v.id <> p_exclude)
+$$;
+
+-- Jours (proches de p_day) où il reste de la place pour p_people personnes.
+create or replace function private.days_with_room(p_day date, p_people int, p_exclude uuid default null)
+returns jsonb
+language sql stable
+set search_path = ''
+set jit = off
+as $$
+  with s as (select * from public.settings where id),
+  d as (
+    select g::date as day
+    from s, generate_series(private.today(), private.today() + (s.days_ahead - 1), interval '1 day') g
+  )
+  select coalesce(jsonb_agg(day order by day), '[]'::jsonb)
+  from (
+    select d.day from d, s
+    where d.day <> p_day
+      and (s.per_day is null or private.day_people(d.day, p_exclude) + p_people <= s.per_day)
+      and not (d.day = private.today() and private.now_min() >= s.close_min - 30)
+      and not exists (
+        select 1 from public.blocks b
+        where b.day = d.day and b.start_min <= s.open_min and b.end_min >= s.close_min
+      )
+    order by abs(d.day - p_day), d.day
+    limit 4
+  ) t
+$$;
+
 -- Plages libres d'une journée pour `p_people` personnes (pour proposer une
 -- alternative en cas de refus). Tranches passées et bloquées exclues.
 create or replace function private.free_ranges(p_day date, p_people int, p_exclude uuid default null)
@@ -322,10 +390,13 @@ language sql stable
 set search_path = ''
 set jit = off
 as $$
-  with s as (select capacity from public.settings where id),
+  with s as (
+    select capacity, coalesce(per_day - private.day_people(p_day, p_exclude), 99) as day_left
+    from public.settings where id
+  ),
   d as (
     select ds.slot,
-      (not ds.blocked and not ds.past and (s.capacity - ds.load) >= p_people) as ok
+      (not ds.blocked and not ds.past and (s.capacity - ds.load) >= p_people and s.day_left >= p_people) as ok
     from private.day_slots(p_day, p_exclude) ds, s
   ),
   g as (
@@ -364,6 +435,7 @@ declare
   v_now int := private.now_min();
   v_reason text;
   v_bad int;
+  v_day int;
 begin
   select * into s from public.settings where id;
 
@@ -399,6 +471,22 @@ begin
     order by b.start_min limit 1;
     if found then
       return private.err('blocked', coalesce(nullif(v_reason, ''), 'Pas de visite possible à ce moment-là.'));
+    end if;
+  end if;
+
+  -- Pas plus de `per_day` personnes sur la journée. Une visite déjà prévue
+  -- qu'on modifie sans ajouter personne reste acceptée.
+  if s.per_day is not null then
+    v_day := private.day_people(p_day, p_exclude);
+    if v_day + p_people > s.per_day and not exists (
+      select 1 from public.visits o where o.id = p_exclude and o.day = p_day and o.people >= p_people
+    ) then
+      return private.err('day_full', case
+          when s.per_day - v_day = 1 then 'Il ne reste qu''une place ce jour-là : impossible de venir à deux.'
+          when s.per_day - v_day > 1 then format('Il ne reste que %s places ce jour-là.', s.per_day - v_day)
+          else format('Ce jour-là est complet : %s personnes sont déjà prévues.', v_day)
+        end)
+        || jsonb_build_object('next_days', private.days_with_room(p_day, p_people, p_exclude));
     end if;
   end if;
 
@@ -445,10 +533,16 @@ set jit = off
 as $$
 declare
   v_cap int;
+  v_per_day int;
   v_bad int;
 begin
   perform private.lock_day(new.day);
-  select capacity into v_cap from public.settings where id;
+  select capacity, per_day into v_cap, v_per_day from public.settings where id;
+  if v_per_day is not null
+     and (tg_op = 'INSERT' or new.day <> old.day or new.people > old.people)
+     and private.day_people(new.day) > v_per_day then
+    raise exception 'plus de % personnes le %', v_per_day, new.day using errcode = 'check_violation';
+  end if;
   select min(g.slot) into v_bad
   from generate_series(new.start_min::int, new.end_min::int - 30, 30) as g(slot)
   where (
@@ -507,7 +601,7 @@ begin
     'settings', (
       select jsonb_build_object(
         'app_name', s.app_name, 'patient_label', s.patient_label,
-        'open_min', s.open_min, 'close_min', s.close_min, 'capacity', s.capacity,
+        'open_min', s.open_min, 'close_min', s.close_min, 'capacity', s.capacity, 'per_day', s.per_day,
         'max_duration_min', s.max_duration_min, 'days_ahead', s.days_ahead,
         'announcement', s.announcement, 'guidelines', s.guidelines
       ) from public.settings s where s.id
@@ -530,6 +624,13 @@ begin
         'id', n.id, 'author', n.author, 'body', n.body, 'created_at', n.created_at
       ) order by n.created_at desc)
       from (select * from public.notes order by created_at desc limit 300) n
+    ), '[]'::jsonb),
+    'photos', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', ph.id, 'path', ph.path, 'day', ph.day, 'author', ph.author, 'caption', ph.caption,
+        'width', ph.width, 'height', ph.height, 'created_at', ph.created_at
+      ) order by ph.day desc, ph.created_at desc)
+      from (select * from public.photos order by day desc, created_at desc limit 2000) ph
     ), '[]'::jsonb)
   );
 end;
@@ -555,6 +656,10 @@ as $$
     'notes', coalesce((
       select jsonb_agg(jsonb_build_object('id', o.note_id, 'key', k.idx))
       from private.note_owners o join k on k.h = o.owner_hash
+    ), '[]'::jsonb),
+    'photos', coalesce((
+      select jsonb_agg(jsonb_build_object('id', o.photo_id, 'key', k.idx))
+      from private.photo_owners o join k on k.h = o.owner_hash
     ), '[]'::jsonb)
   )
 $$;
@@ -766,6 +871,103 @@ begin
     return private.err('forbidden', 'Ce mot n''a pas été écrit depuis cet appareil.');
   end if;
   return jsonb_build_object('ok', true);
+end;
+$$;
+
+-- ----------------------------------------------------------------------------
+--  Photos
+-- ----------------------------------------------------------------------------
+
+-- Enregistre une photo déjà envoyée dans le stockage (bucket « photos »).
+create or replace function public.add_photo(
+  p_path text,
+  p_day date,
+  p_author text,
+  p_caption text,
+  p_width int,
+  p_height int,
+  p_owner_key text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_author text := private.clean_name(p_author, 30);
+  v_caption text := private.clean_note(p_caption);
+  v_day date := coalesce(p_day, private.today());
+  v_exists boolean := true;
+  v_id uuid;
+begin
+  if p_owner_key is null or char_length(p_owner_key) not between 32 and 128 then
+    return private.err('invalid', 'Jeton d''appareil invalide. Recharge la page.');
+  end if;
+  if not private.rate_ok('photo', private.client_key(), 60, interval '1 hour') then
+    return private.err('rate_limited', 'Beaucoup de photos d''un coup. Réessaie dans un moment.');
+  end if;
+  if v_author is null then
+    return private.err('invalid', 'Indique ton prénom.');
+  end if;
+  if v_caption is not null and char_length(v_caption) > 140 then
+    return private.err('invalid', 'La légende fait plus de 140 caractères.');
+  end if;
+  if p_path is null or p_path !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$' then
+    return private.err('invalid', 'Nom de fichier invalide.');
+  end if;
+  if v_day > private.today() or v_day < private.today() - 30 then
+    return private.err('invalid', 'Date de photo invalide.');
+  end if;
+  if p_width not between 1 and 4000 or p_height not between 1 and 4000 then
+    return private.err('invalid', 'Dimensions de photo invalides.');
+  end if;
+  -- Le fichier doit vraiment être arrivé dans le stockage.
+  if to_regclass('storage.objects') is not null then
+    execute 'select exists (select 1 from storage.objects where bucket_id = $1 and name = $2)'
+      into v_exists using 'photos', p_path;
+  end if;
+  if not v_exists then
+    return private.err('invalid', 'La photo n''a pas été reçue. Réessaie.');
+  end if;
+
+  insert into public.photos (path, day, author, caption, width, height)
+  values (p_path, v_day, v_author, v_caption, p_width, p_height)
+  on conflict (path) do nothing
+  returning id into v_id;
+  if v_id is null then
+    return private.err('invalid', 'Cette photo est déjà enregistrée.');
+  end if;
+  insert into private.photo_owners (photo_id, owner_hash) values (v_id, private.hash_key(p_owner_key));
+
+  return jsonb_build_object('ok', true, 'photo', (
+    select jsonb_build_object(
+      'id', ph.id, 'path', ph.path, 'day', ph.day, 'author', ph.author, 'caption', ph.caption,
+      'width', ph.width, 'height', ph.height, 'created_at', ph.created_at
+    ) from public.photos ph where ph.id = v_id
+  ));
+end;
+$$;
+
+create or replace function public.delete_photo(p_id uuid, p_owner_key text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_path text;
+begin
+  if p_owner_key is null or char_length(p_owner_key) not between 32 and 128 then
+    return private.err('forbidden', 'Cette photo n''a pas été ajoutée depuis cet appareil.');
+  end if;
+  delete from public.photos ph
+  using private.photo_owners o
+  where ph.id = p_id and o.photo_id = ph.id and o.owner_hash = private.hash_key(p_owner_key)
+  returning ph.path into v_path;
+  if v_path is null then
+    return private.err('forbidden', 'Cette photo n''a pas été ajoutée depuis cet appareil.');
+  end if;
+  return jsonb_build_object('ok', true, 'path', v_path);
 end;
 $$;
 
@@ -1018,6 +1220,23 @@ begin
 end;
 $$;
 
+create or replace function public.admin_delete_photo(p_token text, p_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_path text;
+begin
+  if not private.admin_ok(p_token) then
+    return private.err('unauthorized', 'Session admin expirée.');
+  end if;
+  delete from public.photos where id = p_id returning path into v_path;
+  return jsonb_build_object('ok', true, 'path', v_path);
+end;
+$$;
+
 create or replace function public.admin_delete_note(p_token text, p_id uuid)
 returns jsonb
 language plpgsql
@@ -1051,6 +1270,9 @@ begin
       open_min = coalesce((p_patch ->> 'open_min')::smallint, s.open_min),
       close_min = coalesce((p_patch ->> 'close_min')::smallint, s.close_min),
       capacity = coalesce((p_patch ->> 'capacity')::smallint, s.capacity),
+      per_day = case
+        when p_patch ? 'per_day' then nullif(p_patch ->> 'per_day', '')::smallint
+        else s.per_day end,
       max_duration_min = case
         when p_patch ? 'max_duration_min' then nullif(p_patch ->> 'max_duration_min', '')::smallint
         else s.max_duration_min end,
@@ -1079,19 +1301,22 @@ alter table public.settings enable row level security;
 alter table public.visits enable row level security;
 alter table public.blocks enable row level security;
 alter table public.notes enable row level security;
+alter table public.photos enable row level security;
 
 drop policy if exists "lecture publique" on public.settings;
 drop policy if exists "lecture publique" on public.visits;
 drop policy if exists "lecture publique" on public.blocks;
 drop policy if exists "lecture publique" on public.notes;
+drop policy if exists "lecture publique" on public.photos;
 create policy "lecture publique" on public.settings for select to anon, authenticated using (true);
 create policy "lecture publique" on public.visits for select to anon, authenticated using (true);
 create policy "lecture publique" on public.blocks for select to anon, authenticated using (true);
 create policy "lecture publique" on public.notes for select to anon, authenticated using (true);
+create policy "lecture publique" on public.photos for select to anon, authenticated using (true);
 
 -- Lecture seule, rien d'autre.
-revoke all on public.settings, public.visits, public.blocks, public.notes from anon, authenticated;
-grant select on public.settings, public.visits, public.blocks, public.notes to anon, authenticated;
+revoke all on public.settings, public.visits, public.blocks, public.notes, public.photos from anon, authenticated;
+grant select on public.settings, public.visits, public.blocks, public.notes, public.photos to anon, authenticated;
 
 revoke all on all tables in schema private from public, anon, authenticated;
 revoke all on all functions in schema private from public, anon, authenticated;
@@ -1107,6 +1332,9 @@ begin
     'public.update_visit(uuid, text, date, int, int, int, text, text)',
     'public.cancel_visit(uuid, text)',
     'public.delete_note(uuid, text)',
+    'public.add_photo(text, date, text, text, int, int, text)',
+    'public.delete_photo(uuid, text)',
+    'public.admin_delete_photo(text, uuid)',
     'public.admin_login(text)',
     'public.admin_check(text)',
     'public.admin_logout(text)',
@@ -1133,7 +1361,7 @@ declare
   t text;
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['visits', 'blocks', 'notes', 'settings'] loop
+    foreach t in array array['visits', 'blocks', 'notes', 'settings', 'photos'] loop
       if not exists (
         select 1 from pg_publication_tables
         where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
@@ -1141,6 +1369,29 @@ begin
         execute format('alter publication supabase_realtime add table public.%I', t);
       end if;
     end loop;
+  end if;
+end;
+$$;
+
+-- Stockage des photos : bucket public (adresses impossibles à deviner),
+-- 6 Mo max, JPEG seulement. Ajout autorisé, ni modification ni suppression
+-- depuis l'app (la suppression passe par la fonction Vercel /api/photo-cleanup).
+do $$
+begin
+  if to_regclass('storage.buckets') is not null then
+    insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+    values ('photos', 'photos', true, 6291456, array['image/jpeg'])
+    on conflict (id) do update
+      set public = true, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+    execute 'drop policy if exists "visites : ajout de photos" on storage.objects';
+    execute $policy$
+      create policy "visites : ajout de photos" on storage.objects
+      for insert to anon, authenticated
+      with check (
+        bucket_id = 'photos'
+        and name ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$'
+      )
+    $policy$;
   end if;
 end;
 $$;

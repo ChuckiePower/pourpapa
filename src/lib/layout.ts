@@ -36,22 +36,25 @@ export type FreeSegment = {
   end_min: number
   /** Colonnes contiguës couvertes par l'espace libre */
   cols: number[]
-  /** Visites présentes à côté (vide si toutes les places sont libres) */
+  /** Visites présentes à côté (vide si personne n'est là) */
   alongside: Visit[]
+  /** Nombre de places réellement libres (limite par jour comprise) */
+  places: number
 }
 
 export function freeSegments(states: SlotState[], placement: Map<string, number[]>, capacity: number): FreeSegment[] {
-  type Row = { slot: number; freeCols: number[]; alongside: Visit[]; key: string }
+  type Row = { slot: number; freeCols: number[]; alongside: Visit[]; places: number; key: string }
   const rows: Row[] = states.map((st) => {
     const occupied = new Set(st.present.flatMap((v) => placement.get(v.id) ?? []))
-    const freeCols =
-      freeAt(st, capacity) > 0 ? Array.from({ length: capacity }, (_, c) => c).filter((c) => !occupied.has(c)) : []
+    const places = freeAt(st, capacity)
+    const freeCols = places > 0 ? Array.from({ length: capacity }, (_, c) => c).filter((c) => !occupied.has(c)) : []
     const alongside = freeCols.length ? st.present : []
     return {
       slot: st.slot,
       freeCols,
       alongside,
-      key: `${freeCols.join(',')}|${alongside.map((v) => v.id).join(',')}`,
+      places,
+      key: `${freeCols.join(',')}|${alongside.map((v) => v.id).join(',')}|${places}`,
     }
   })
 
@@ -63,7 +66,7 @@ export function freeSegments(states: SlotState[], placement: Map<string, number[
     while (j + 1 < rows.length && rows[j + 1].key === r.key) j++
     if (r.freeCols.length) {
       for (const run of contiguousRuns(r.freeCols)) {
-        out.push({ start_min: r.slot, end_min: rows[j].slot + SLOT, cols: run, alongside: r.alongside })
+        out.push({ start_min: r.slot, end_min: rows[j].slot + SLOT, cols: run, alongside: r.alongside, places: Math.min(run.length, r.places) })
       }
     }
     i = j + 1

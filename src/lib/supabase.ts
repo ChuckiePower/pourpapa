@@ -7,12 +7,13 @@
 import { PostgrestClient } from '@supabase/postgrest-js'
 import { RealtimeClient } from '@supabase/realtime-js'
 
-const URL_ = __SUPABASE_URL__.replace(/\/+$/, '')
+export const SUPABASE_URL = __SUPABASE_URL__.replace(/\/+$/, '')
+const URL_ = SUPABASE_URL
 const KEY = __SUPABASE_KEY__
 
 export const configured = Boolean(URL_ && KEY)
 
-const headers = { apikey: KEY, Authorization: `Bearer ${KEY}` }
+export const headers = { apikey: KEY, Authorization: `Bearer ${KEY}` }
 
 export const db = configured ? new PostgrestClient(`${URL_}/rest/v1`, { headers }) : null
 

@@ -53,7 +53,7 @@ export function PlanningScreen() {
     () =>
       days.map((d) => ({
         day: d,
-        fill: dayFill(slotStates(d, visits, blocks, settings, now), settings.capacity),
+        fill: dayFill(slotStates(d, visits, blocks, settings, now), settings.capacity, settings.per_day),
         count: visits.filter((v) => v.day === d).length,
       })),
     [days, visits, blocks, settings, now],
@@ -126,7 +126,8 @@ export function PlanningScreen() {
             <DaySummary
               day={day}
               isToday={isToday}
-              count={dayVisits.length}
+              people={dayVisits.reduce((n, v) => n + v.people, 0)}
+              perDay={settings.per_day}
               hasFree={!!firstFree}
               fullyBlocked={states.length > 0 && states.every((s) => s.block)}
               pastAll={states.length > 0 && states.every((s) => s.past)}
@@ -172,31 +173,43 @@ export function PlanningScreen() {
 function DaySummary({
   day,
   isToday,
-  count,
+  people,
+  perDay,
   hasFree,
   fullyBlocked,
   pastAll,
 }: {
   day: string
   isToday: boolean
-  count: number
+  people: number
+  perDay: number | null
   hasFree: boolean
   fullyBlocked: boolean
   pastAll: boolean
 }) {
   if (fullyBlocked) return <p className="mt-1 text-[15px] text-full-ink">Pas de visite ce jour-là.</p>
   if (pastAll) return <p className="mt-1 text-[15px] text-muted">Les visites sont terminées.</p>
-  if (count === 0) {
+  if (people === 0) {
     return (
       <p className="mt-1 text-[15px] font-medium text-sage">
         Personne n'est prévu {isToday ? "aujourd'hui" : dayName(day)}
       </p>
     )
   }
+  const left = perDay == null ? null : Math.max(0, perDay - people)
+  const full = left === 0 || !hasFree
   return (
     <p className="mt-1 text-[15px] text-muted">
-      {count} visite{count > 1 ? 's' : ''} prévue{count > 1 ? 's' : ''}
-      {hasFree ? ' · encore de la place' : ' · complet'}
+      {people} personne{people > 1 ? 's' : ''} prévue{people > 1 ? 's' : ''} ·{' '}
+      {full ? (
+        <span className="font-medium text-full-ink">complet</span>
+      ) : left != null ? (
+        <span className="font-medium text-sage">
+          encore {left} place{left > 1 ? 's' : ''}
+        </span>
+      ) : (
+        'encore de la place'
+      )}
     </p>
   )
 }

@@ -3,7 +3,10 @@ export type Settings = {
   patient_label: string
   open_min: number
   close_min: number
+  /** Personnes en même temps */
   capacity: number
+  /** Personnes sur toute la journée (null = pas de limite) */
+  per_day: number | null
   max_duration_min: number | null
   days_ahead: number
   announcement: string
@@ -39,12 +42,25 @@ export type Note = {
 
 export type ServerNow = { day: string; min: number; epoch_ms: number }
 
+export type Photo = {
+  id: string
+  /** Nom du fichier dans le bucket « photos » */
+  path: string
+  day: string
+  author: string
+  caption: string | null
+  width: number
+  height: number
+  created_at: string
+}
+
 export type Planning = {
   now: ServerNow
   settings: Settings
   visits: Visit[]
   blocks: Block[]
   notes: Note[]
+  photos?: Photo[]
 }
 
 export type Range = { start_min: number; end_min: number }
@@ -57,6 +73,7 @@ export type FailReason =
   | 'too_long'
   | 'blocked'
   | 'full'
+  | 'day_full'
   | 'rate_limited'
   | 'not_found'
   | 'forbidden'
@@ -71,6 +88,7 @@ export type Fail = {
   reason: FailReason
   message: string
   alternatives?: Range[]
+  next_days?: string[]
   slot?: number
 }
 
@@ -82,6 +100,7 @@ export const DEFAULT_SETTINGS: Settings = {
   open_min: 840,
   close_min: 1200,
   capacity: 2,
+  per_day: 2,
   max_duration_min: null,
   days_ahead: 14,
   announcement: '',

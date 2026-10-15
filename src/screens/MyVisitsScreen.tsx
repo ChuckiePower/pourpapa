@@ -20,7 +20,8 @@ function companionLine(mine: Visit, other: Visit): string {
   const start = Math.max(mine.start_min, other.start_min)
   const end = Math.min(mine.end_min, other.end_min)
   const range = fmtFromTo(start, end)
-  if (other.start_min >= mine.start_min) {
+  if (other.start_min === mine.start_min) return `Avec ${who(other)} ${range}`
+  if (other.start_min > mine.start_min) {
     return `${who(other)} ${other.people === 2 ? 'te rejoignent' : 'te rejoint'} ${range}`
   }
   return `Tu rejoins ${who(other)} ${range}`

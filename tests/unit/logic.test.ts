@@ -6,7 +6,7 @@ import { DEFAULT_SETTINGS, type Visit } from '../../src/lib/types'
 
 const DAY = '2026-10-20'
 const NOW = { day: '2026-10-19', min: 600 }
-const S = DEFAULT_SETTINGS
+const S = { ...DEFAULT_SETTINGS, per_day: null }
 const h = (s: string) => {
   const [a, b] = s.split('h')
   return Number(a) * 60 + (b ? Number(b) : 0)
@@ -135,5 +135,37 @@ describe('dates et heures', () => {
     expect(parisParts(new Date('2026-10-24T22:30:00Z'))).toEqual({ day: '2026-10-25', min: 30 })
     expect(addDays('2026-10-24', 1)).toBe('2026-10-25')
     expect(addDays('2026-10-25', 1)).toBe('2026-10-26')
+  })
+})
+
+describe('limite de personnes par jour (miroir client)', () => {
+  const S2 = { ...S, per_day: 2 }
+  const ok = (visits: Visit[], from: string, to: string, people = 1) =>
+    checkVisit({ day: DAY, start: h(from), end: h(to), people }, slotStates(DAY, visits, [], S2, NOW), S2, NOW)
+
+  it('deux personnes sur la journée, à n’importe quelle heure', () => {
+    const a = v('A', '14h', '15h')
+    expect(ok([a], '18h', '19h').ok).toBe(true)
+    expect(ok([a], '18h', '19h', 2)).toEqual({ ok: false, reason: 'day_full' })
+    expect(ok([a, v('B', '18h', '19h')], '16h', '17h')).toEqual({ ok: false, reason: 'day_full' })
+    expect(ok([v('D', '15h', '16h', 2, 'L')], '18h', '19h')).toEqual({ ok: false, reason: 'day_full' })
+  })
+
+  it('places libres, remplissage et timeline tiennent compte de la journée', () => {
+    const manu = v('Manu', '14h', '16h')
+    const st = slotStates(DAY, [manu], [], S2, NOW)
+    expect(freeRangesByCount(st, 2)).toEqual([{ start_min: h('14h'), end_min: h('20h'), free: 1 }])
+    expect(freeRanges(st, 2, 2)).toEqual([])
+    expect(dayFill(st, 2, 2)).toBe(0.5)
+    const segs = freeSegments(st, assignColumns([manu], 2), 2).map((s) => ({
+      r: fmtRange(s.start_min, s.end_min), places: s.places, with: s.alongside.map((x) => x.name),
+    }))
+    expect(segs).toEqual([
+      { r: '14h–16h', places: 1, with: ['Manu'] },
+      { r: '16h–20h', places: 1, with: [] },
+    ])
+    const full = slotStates(DAY, [manu, v('Léa', '18h', '19h')], [], S2, NOW)
+    expect(freeSegments(full, assignColumns([manu], 2), 2)).toEqual([])
+    expect(dayFill(full, 2, 2)).toBe(1)
   })
 })

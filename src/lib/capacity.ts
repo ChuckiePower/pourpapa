@@ -18,6 +18,8 @@ export type SlotState = {
   past: boolean
   /** Visites présentes sur cette tranche */
   present: Visit[]
+  /** Places restantes sur la journée (Infinity sans limite par jour) */
+  dayLeft: number
 }
 
 export type Now = { day: string; min: number }
@@ -26,12 +28,14 @@ export function slotStates(
   day: string,
   visits: Visit[],
   blocks: Block[],
-  settings: Pick<Settings, 'open_min' | 'close_min'>,
+  settings: Pick<Settings, 'open_min' | 'close_min'> & { per_day?: number | null },
   now: Now,
   excludeId?: string,
 ): SlotState[] {
   const dayVisits = visits.filter((v) => v.day === day && v.id !== excludeId)
   const dayBlocks = blocks.filter((b) => b.day === day)
+  const dayPeople = dayVisits.reduce((n, v) => n + v.people, 0)
+  const dayLeft = settings.per_day == null ? Infinity : Math.max(0, settings.per_day - dayPeople)
   const out: SlotState[] = []
   for (let s = settings.open_min; s < settings.close_min; s += SLOT) {
     const present = dayVisits.filter((v) => v.start_min <= s && v.end_min > s)
@@ -41,6 +45,7 @@ export function slotStates(
       block: dayBlocks.find((b) => b.start_min <= s && b.end_min > s) ?? null,
       past: day < now.day || (day === now.day && s + SLOT <= now.min),
       present,
+      dayLeft,
     })
   }
   return out
@@ -48,7 +53,7 @@ export function slotStates(
 
 export function freeAt(st: SlotState, capacity: number): number {
   if (st.block || st.past) return 0
-  return Math.max(0, capacity - st.load)
+  return Math.max(0, Math.min(capacity - st.load, st.dayLeft))
 }
 
 export function fits(
@@ -64,7 +69,7 @@ export function fits(
     const st = states.find((x) => x.slot === s)
     if (!st || st.block) return false
     if (st.past && !(keepStart !== undefined && start === keepStart)) return false
-    if (st.load + people > capacity) return false
+    if (st.load + people > capacity || people > st.dayLeft) return false
   }
   return true
 }
@@ -104,7 +109,7 @@ export function maxEnd(states: SlotState[], start: number, people: number, capac
 
 export type Check =
   | { ok: true }
-  | { ok: false; reason: 'past' | 'too_far' | 'too_long' | 'outside_hours' | 'blocked' | 'full' | 'invalid' }
+  | { ok: false; reason: 'past' | 'too_far' | 'too_long' | 'outside_hours' | 'blocked' | 'full' | 'day_full' | 'invalid' }
 
 /** Même ordre de vérification que la base. */
 export function checkVisit(
@@ -130,6 +135,7 @@ export function checkVisit(
       if (states.find((x) => x.slot === s)?.block) return { ok: false, reason: 'blocked' }
     }
   }
+  if (states.length && people > states[0].dayLeft) return { ok: false, reason: 'day_full' }
   for (let s = start; s < end; s += SLOT) {
     const st = states.find((x) => x.slot === s)
     if (!st || st.load + people > settings.capacity) return { ok: false, reason: 'full' }
@@ -137,9 +143,15 @@ export function checkVisit(
   return { ok: true }
 }
 
-/** Taux de remplissage d'une journée (0 à 1). Les périodes bloquées comptent comme pleines. */
-export function dayFill(states: SlotState[], capacity: number): number {
+/**
+ * Taux de remplissage d'une journée (0 à 1). Avec une limite par jour, c'est
+ * la part des places de la journée déjà prises. Les périodes bloquées comptent
+ * comme pleines.
+ */
+export function dayFill(states: SlotState[], capacity: number, perDay?: number | null): number {
   if (!states.length) return 0
+  if (states.every((st) => st.block)) return 1
+  if (perDay) return Math.min(1, (perDay - states[0].dayLeft) / perDay)
   let used = 0
   for (const st of states) used += st.block ? capacity : Math.min(capacity, st.load)
   return used / (capacity * states.length)

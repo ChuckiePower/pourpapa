@@ -87,6 +87,18 @@ export default defineConfig(({ mode }) => {
           navigateFallback: '/index.html',
           navigateFallbackDenylist: [/^\/api\//],
           cleanupOutdatedCaches: true,
+          // Les photos déjà vues restent visibles hors ligne.
+          runtimeCaching: [
+            {
+              urlPattern: ({ url }) => url.pathname.includes('/storage/v1/object/public/photos/'),
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'photos',
+                expiration: { maxEntries: 400 },
+                cacheableResponse: { statuses: [200] },
+              },
+            },
+          ],
         },
       }),
     ],

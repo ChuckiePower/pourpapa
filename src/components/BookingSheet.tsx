@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CalendarPlus, Link2, Send } from 'lucide-react'
 import * as api from '../lib/api'
-import { checkVisit, fits, freeRanges, maxEnd, SLOT, slotStates } from '../lib/capacity'
+import { checkVisit, fits, freeAt, freeRanges, maxEnd, SLOT, slotStates } from '../lib/capacity'
 import { getKeys, modificationLink, primaryKey, saveName, savedName } from '../lib/owner'
 import { addToCalendar, copyText, inviteText, whatsappUrl } from '../lib/share'
 import { useData, useNow } from '../lib/store'
-import { addDays, capitalize, dayLong, fmtDuration, fmtMin, fmtRange } from '../lib/time'
+import { addDays, capitalize, dayLong, dayRelative, fmtDuration, fmtFromTo, fmtMin, fmtRange } from '../lib/time'
 import type { Fail, Range, Visit } from '../lib/types'
 import { Guidelines } from './Guidelines'
 import { Button, charCount, Chip, cx, ErrorNote, Input, Segmented, Select, Sheet, Spinner, TextArea, useToast } from './ui'
@@ -24,6 +24,7 @@ const REASON_TEXT: Record<string, string> = {
   outside_hours: "C'est en dehors des heures de visite.",
   blocked: 'Pas de visite possible à ce moment-là.',
   full: "Il n'y a plus assez de place à ce moment-là.",
+  day_full: "Il n'y a plus assez de place ce jour-là.",
   invalid: 'Les horaires ne sont pas valides.',
 }
 
@@ -65,11 +66,10 @@ function Subtitle({ mode }: { mode: SheetMode }) {
   if (mode.kind === 'book' && mode.join) {
     return (
       <>
-        {capitalize(dayLong(mode.day))} · {mode.join.name} vient {fmtRange(mode.join.start_min, mode.join.end_min)}
+        {mode.join.name} vient {fmtFromTo(mode.join.start_min, mode.join.end_min)}
       </>
     )
   }
-  if (mode.kind === 'book') return <>{capitalize(dayLong(mode.day))}</>
   return null
 }
 
@@ -146,6 +146,22 @@ function BookingForm({ mode, onClose, onDone }: { mode: SheetMode; onClose: () =
     if (!fits(states, start, end, p, cap, keepStart)) setEnd(bestEnd(start, p, end - start))
   }
 
+  /** Changer de jour : on garde les horaires s'ils conviennent, sinon le premier moment libre. */
+  function changeDay(d: string) {
+    setDay(d)
+    setError(null)
+    const st = slotStates(d, visits, blocks, settings, refNow, existing?.id)
+    const keep = existing && existing.day === d && !admin ? existing.start_min : undefined
+    const p: 1 | 2 = people === 2 && !st.some((x) => freeAt(x, cap) >= 2) ? 1 : people
+    if (p !== people) setPeople(p)
+    if (fits(st, start, end, p, cap, keep)) return
+    const free = st.filter((x) => freeAt(x, cap) >= p)
+    const s0 = (free.find((x) => x.slot >= start) ?? free[0])?.slot ?? start
+    const reach = Math.min(maxEnd(st, s0, p, cap, keep), limitEnd(s0))
+    setStart(s0)
+    setEnd(reach <= s0 ? s0 + SLOT : Math.min(s0 + Math.max(end - start, SLOT), reach))
+  }
+
   function applyRange(r: Range) {
     setStart(r.start_min)
     setEnd(Math.min(r.end_min, r.start_min + Math.max(end - start, SLOT), limitEnd(r.start_min)))
@@ -197,6 +213,10 @@ function BookingForm({ mode, onClose, onDone }: { mode: SheetMode; onClose: () =
 
   const visibleDays = Array.from({ length: settings.days_ahead }, (_, i) => addDays(now.day, i))
   if (existing && !visibleDays.includes(existing.day)) visibleDays.unshift(existing.day)
+  const dayLeft = (d: string) =>
+    settings.per_day == null
+      ? Infinity
+      : settings.per_day - visits.filter((v) => v.day === d && v.id !== existing?.id).reduce((n, v) => n + v.people, 0)
 
   return (
     <form
@@ -206,13 +226,17 @@ function BookingForm({ mode, onClose, onDone }: { mode: SheetMode; onClose: () =
         void submit()
       }}
     >
-      {mode.kind !== 'book' && (
-        <Select label="Jour" value={day} onChange={(e) => { setDay(e.target.value); setError(null) }}>
-          {visibleDays.map((d) => (
-            <option key={d} value={d}>{capitalize(dayLong(d))}</option>
-          ))}
-        </Select>
-      )}
+      <Select label="Jour" value={day} onChange={(e) => changeDay(e.target.value)}>
+        {visibleDays.map((d) => {
+          const full = dayLeft(d) <= 0
+          return (
+            <option key={d} value={d} disabled={full && d !== day}>
+              {capitalize(dayLong(d))}
+              {full ? ' · complet' : ''}
+            </option>
+          )
+        })}
+      </Select>
 
       <Select label="Arrivée" value={start} onChange={(e) => changeStart(Number(e.target.value))}>
         {startOptions.map((o) => (
@@ -273,7 +297,11 @@ function BookingForm({ mode, onClose, onDone }: { mode: SheetMode; onClose: () =
           ]}
         />
         {!duoPossible && people === 1 && (
-          <p className="mt-2 text-[14px] text-muted">Une seule place libre à {fmtMin(start)} : impossible de venir à deux.</p>
+          <p className="mt-2 text-[14px] text-muted">
+            {(states[0]?.dayLeft ?? Infinity) < 2
+              ? "Il ne reste qu'une place ce jour-là : impossible de venir à deux."
+              : `Une seule place libre à ${fmtMin(start)} : impossible de venir à deux.`}
+          </p>
         )}
       </div>
 
@@ -325,6 +353,18 @@ function BookingForm({ mode, onClose, onDone }: { mode: SheetMode; onClose: () =
       {error && (
         <ErrorNote>
           <p>{error.reason === 'full' ? 'Oups, quelqu’un vient de prendre cette place.' : error.message}</p>
+          {error.next_days && error.next_days.length > 0 && (
+            <div className="mt-3">
+              <p className="text-[14px] text-muted">Encore de la place :</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {error.next_days.map((d) => (
+                  <Chip key={d} onClick={() => changeDay(d)}>
+                    {capitalize(dayRelative(d, now.day))}
+                  </Chip>
+                ))}
+              </div>
+            </div>
+          )}
           {error.alternatives && error.alternatives.length > 0 && (
             <div className="mt-3">
               <p className="text-[14px] text-muted">Encore libre ce jour-là :</p>

@@ -3,7 +3,7 @@
  * tout passe par les fonctions Postgres (voir supabase/schema.sql).
  */
 import { db } from './supabase'
-import type { Fail, Planning, Range, Result, Settings, Visit } from './types'
+import type { Fail, Photo, Planning, Range, Result, Settings, Visit } from './types'
 
 const OFFLINE: Fail = {
   ok: false,
@@ -89,10 +89,23 @@ export function deleteNote(id: string, key: string) {
   return call('delete_note', { p_id: id, p_owner_key: key })
 }
 
+type Owned = { id: string; key: number }[]
+
 export function myItems(keys: string[]) {
   return call<never>('my_items', { p_keys: keys }) as unknown as Promise<
-    { visits: { id: string; key: number }[]; notes: { id: string; key: number }[] } | Fail
+    { visits: Owned; notes: Owned; photos?: Owned } | Fail
   >
+}
+
+export function addPhoto(p: { path: string; day: string; author: string; caption: string | null; width: number; height: number; key: string }) {
+  return call<{ photo: Photo }>('add_photo', {
+    p_path: p.path, p_day: p.day, p_author: p.author, p_caption: p.caption,
+    p_width: p.width, p_height: p.height, p_owner_key: p.key,
+  })
+}
+
+export function deletePhoto(id: string, key: string) {
+  return call<{ path: string }>('delete_photo', { p_id: id, p_owner_key: key })
 }
 
 /* ---------- Admin ---------- */
@@ -125,6 +138,9 @@ export function adminSaveVisit(token: string, id: string | null, v: VisitInput) 
 }
 export function adminDeleteVisit(token: string, id: string) {
   return call('admin_delete_visit', { p_token: token, p_id: id })
+}
+export function adminDeletePhoto(token: string, id: string) {
+  return call<{ path: string | null }>('admin_delete_photo', { p_token: token, p_id: id })
 }
 export function adminDeleteNote(token: string, id: string) {
   return call('admin_delete_note', { p_token: token, p_id: id })

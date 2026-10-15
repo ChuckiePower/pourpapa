@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
-import { CalendarDays, Clock3, Mail, UserRound, WifiOff } from 'lucide-react'
+import { CalendarDays, Clock3, Images, Mail, UserRound, WifiOff } from 'lucide-react'
 import { Link, useLocation } from '../lib/router'
 import { useData } from '../lib/store'
 import { fmtMin, parisParts } from '../lib/time'
@@ -9,6 +9,7 @@ const TABS = [
   { to: '/', label: 'Planning', icon: CalendarDays },
   { to: '/aujourdhui', label: "Aujourd'hui", icon: Clock3 },
   { to: '/mes-visites', label: 'Mes visites', icon: UserRound },
+  { to: '/photos', label: 'Photos', icon: Images },
   { to: '/mots', label: 'Mots', icon: Mail },
 ] as const
 
@@ -32,7 +33,9 @@ export function Shell({ children }: { children: ReactNode }) {
           <p className="text-right text-[13px] leading-tight text-muted tabular">
             {fmtMin(settings.open_min)}–{fmtMin(settings.close_min)}
             <br />
-            {settings.capacity} {settings.capacity > 1 ? 'personnes' : 'personne'} max
+            {settings.per_day != null
+              ? `${settings.per_day} ${settings.per_day > 1 ? 'personnes' : 'personne'} par jour`
+              : `${settings.capacity} ${settings.capacity > 1 ? 'personnes' : 'personne'} max`}
           </p>
         </div>
       </header>
@@ -78,7 +81,7 @@ function TabBar({ path }: { path: string }) {
   const current = TABS.find((t) => t.to !== '/' && path.startsWith(t.to))?.to ?? '/'
   return (
     <nav aria-label="Navigation" className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t border-line bg-bg/95 backdrop-blur">
-      <ul className="mx-auto grid max-w-lg grid-cols-4">
+      <ul className="mx-auto grid max-w-lg grid-cols-5">
         {TABS.map(({ to, label, icon: Icon }) => {
           const active = current === to
           return (
@@ -87,7 +90,7 @@ function TabBar({ path }: { path: string }) {
                 to={to}
                 aria-current={active ? 'page' : undefined}
                 className={cx(
-                  'flex min-h-16 flex-col items-center justify-center gap-1 text-[12px] font-medium',
+                  'flex min-h-16 flex-col items-center justify-center gap-1 text-[11.5px] font-medium tracking-tight',
                   active ? 'text-ink' : 'text-muted hover:text-ink',
                 )}
               >

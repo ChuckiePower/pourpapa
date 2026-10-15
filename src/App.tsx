@@ -8,6 +8,7 @@ import { importKeys } from './lib/owner'
 import { AdminScreen } from './screens/AdminScreen'
 import { MyVisitsScreen } from './screens/MyVisitsScreen'
 import { NotesScreen } from './screens/NotesScreen'
+import { PhotosScreen } from './screens/PhotosScreen'
 import { PlanningScreen } from './screens/PlanningScreen'
 import { SetupScreen } from './screens/SetupScreen'
 import { TodayScreen } from './screens/TodayScreen'
@@ -33,6 +34,8 @@ function Routes() {
       return <MyVisitsScreen />
     case '/mots':
       return <NotesScreen />
+    case '/photos':
+      return <PhotosScreen />
     case '/admin':
       return <AdminScreen />
     case '/m':
